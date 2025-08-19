@@ -1,0 +1,66 @@
+@startuml
+actor Пользователь
+participant "Telegram Bot" as bot
+participant "API Gateway\n(FastAPI)" as api
+participant "Message Router" as router
+participant "Web Scraper" as scraper
+participant "Text Cleaner" as cleaner
+participant "LLM Orchestrator" as orchestrator
+participant "LLM Provider\n(GPT / DeepSeek / Llama)" as llm
+participant "Response Parser" as parser
+participant "Quality Evaluator" as quality
+participant "Cache (Redis)" as cache
+participant "User DB\n(PostgreSQL)" as db
+participant "Export Engine" as exporter
+
+title Обработка статьи: Пользователь отправляет URL
+
+Пользователь -> bot: Отправляет URL (например, habr.com/...)\n(1. /process https://...)
+bot -> api: POST /process {url, user_id}
+api -> router: Передаёт задачу
+router -> cache: Проверить кэш\n(2. key=hash(url))
+cache --> router: Нет в кэше (miss)
+router -> scraper: Запустить парсинг
+scraper -> scraper: Извлекает HTML
+scraper --> cleaner: Возвращает raw_text
+cleaner -> cleaner: Очищает текст\n(удаляет рекламу, навигацию)
+cleaner --> orchestrator: clean_text
+
+orchestrator -> db: Загрузить настройки\nuser_id
+db --> orchestrator: model_pref, lang, mode
+
+alt Локальный режим
+    orchestrator -> local_llm: Запрос к Ollama/vLLM
+else Облачный режим
+    orchestrator -> llm: API call (prompt + text)
+end
+
+llm --> orchestrator: Raw LLM response (JSON-like)
+orchestrator --> parser: Передаёт ответ
+parser -> parser: Валидирует и извлекает:\n- УДК\n- Теги\n- Пересказ\n- Тезисы\n- Содержание
+parser --> quality: Оценить качество
+quality -> quality: LLM-as-a-judge (опционально)
+quality --> cache: Сохранить результат\nkey=hash(url), ttl=24h
+quality --> db: Сохранить историю
+quality --> api: Возвращает structured_metadata
+
+api -> exporter: Проверить /export\n(если запрошено)
+exporter --> exporter: Экспорт в Notion / Docs / TG
+exporter --> api: Подтверждение
+
+api --> bot: Форматирует ответ\n(текст или JSON)
+bot -> Пользователь: Отправляет результат\n(3. Структурированная выжимка)\n[Кнопки: /export, /json]
+
+note right of orchestrator
+  Выбор модели зависит от:\n  - языка статьи\n  - длины текста\n  - настроек пользователя\n  - режима (personal / custom)
+end note
+
+note right of parser
+  Парсит неструктурированный\nответ LLM в строгий JSON\nпо схеме метаданных.
+end note
+
+note right of quality
+  Может использовать GPT-4o\nдля оценки качества\nдругих моделей (LLM-as-a-judge).
+end note
+
+@enduml

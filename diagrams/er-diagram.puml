@@ -1,0 +1,144 @@
+@startuml
+skinparam entity {
+    BackgroundColor #FDFEFE
+    BorderColor #34495E
+    ArrowColor #2980B9
+}
+
+' ============ Entities ============
+
+entity "User" as user {
+  * user_id : BIGINT {PK}
+  --
+  username : VARCHAR(64)
+  first_name : VARCHAR(64)
+  language : CHAR(2) DEFAULT 'ru'
+  timezone : VARCHAR(50) DEFAULT 'UTC'
+  created_at : TIMESTAMP
+  is_active : BOOLEAN DEFAULT true
+}
+
+entity "UserSettings" as settings {
+  * user_id : BIGINT {PK, FK}
+  --
+  llm_preference : VARCHAR(20) DEFAULT 'auto'
+  detail_level : VARCHAR(10) DEFAULT 'brief'
+  output_format : VARCHAR(10) DEFAULT 'text'
+  use_local_first : BOOLEAN
+  fallback_on_error : BOOLEAN
+}
+
+entity "OAuthToken" as oauth {
+  * id : SERIAL {PK}
+  * user_id : BIGINT {FK}
+  * service : VARCHAR(20) {e.g., 'notion', 'google'}
+  access_token : TEXT
+  refresh_token : TEXT
+  expires_at : TIMESTAMP
+  workspace_id : VARCHAR(100)
+  created_at : TIMESTAMP
+  updated_at : TIMESTAMP
+}
+
+entity "ProcessedArticle" as article {
+  * article_id : UUID {PK}
+  * url : TEXT {unique}
+  title : VARCHAR(500)
+  content_hash : CHAR(64)
+  language : CHAR(2)
+  word_count : INT
+  processed_at : TIMESTAMP
+  source_domain : VARCHAR(100)
+}
+
+entity "ArticleMetadata" as metadata {
+  * article_id : UUID {PK, FK}
+  --
+  udc_code : VARCHAR(20)
+  summary : TEXT
+  outline : JSONB
+  key_claims : JSONB
+  tags : JSONB
+  quality_score : FLOAT
+}
+
+entity "UserArticleHistory" as history {
+  * user_id : BIGINT {FK}
+  * article_id : UUID {FK}
+  --
+  accessed_at : TIMESTAMP
+  export_count : INT DEFAULT 0
+  rating : SMALLINT
+  notes : TEXT
+  PRIMARY KEY (user_id, article_id)
+}
+
+entity "Subscription" as subscription {
+  * user_id : BIGINT {PK, FK}
+  --
+  is_active : BOOLEAN DEFAULT true
+  delivery_time : TIME DEFAULT '09:00'
+  timezone : VARCHAR(50)
+  topics : JSONB {e.g., ['NLP', 'DevOps']}
+  last_sent : TIMESTAMP
+}
+
+entity "ExportRecord" as export {
+  * export_id : SERIAL {PK}
+  * user_id : BIGINT {FK}
+  * article_id : UUID {FK}
+  * service : VARCHAR(20) {notion, docs, markdown, tg_channel}
+  target_url : TEXT
+  exported_at : TIMESTAMP
+  metadata_used : JSONB
+}
+
+' ============ Relationships ============
+
+user ||--|| settings : "1:1"
+user ||--o{ oauth : "1:N"
+user ||--o{ history : "1:N"
+user ||--|| subscription : "1:1"
+user ||--o{ export : "1:N"
+
+article ||--|| metadata : "1:1"
+article ||--o{ history : "1:N"
+article ||--o{ export : "1:N"
+
+note right of user
+  Основной пользователь Telegram-бота.
+  user_id = Telegram user_id (BIGINT)
+end note
+
+note right of settings
+  Хранит предпочтения обработки:
+  - LLM, уровень детализации,
+  - формат вывода.
+end note
+
+note right of oauth
+  OAuth2-токены для Notion, Google и др.
+  Шифруются перед сохранением.
+end note
+
+note right of article
+  Кэшированные статьи по URL.
+  content_hash — для дедупликации.
+end note
+
+note right of metadata
+  Структурированные метаданные,
+  сгенерированные LLM.
+end note
+
+note right of subscription
+  Подписка на ежедневный дайджест.
+  topics — массив ключевых слов.
+end note
+
+note right of export
+  История экспорта.
+  metadata_used — какие поля были использованы.
+end note
+
+@enduml

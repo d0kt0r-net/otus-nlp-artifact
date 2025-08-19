@@ -1,0 +1,115 @@
+@startuml
+skinparam componentStyle rectangle
+skinparam backgroundColor #F9F9F9
+skinparam shadowing false
+
+package "ArtiFact System" {
+  [Telegram Bot] as telegram
+  [API Gateway\n(FastAPI)] as api_gateway
+  [Message Router] as router
+  [User Preferences DB\n(PostgreSQL)] as db
+  [Cache\n(Redis)] as cache
+  [Task Queue\n(Celery + Redis)] as queue
+}
+
+package "Article Processing" {
+  [Web Scraper] as scraper
+  [Text Cleaner] as cleaner
+  [LLM Orchestrator] as orchestrator
+  [Response Parser] as parser
+  [Quality Evaluator] as quality
+}
+
+package "LLM Providers" {
+  [OpenAI\n(GPT-4o/3.5)] as gpt
+  [DeepSeek API] as deepseek
+  [Qwen API] as qwen
+  [YaLM API] as yalm
+  [Local LLM\n(Ollama/vLLM)] as local_llm
+}
+
+package "Export & Delivery" {
+  [Export Engine] as exporter
+  [Notion] as notion
+  [Google Docs] as docs
+  [Markdown] as markdown
+  [Telegram Channel] as tg_channel
+}
+
+package "Digest Engine" {
+  [Digest Engine] as digest
+  [RSS/Atom Feeds] as rss
+  [arXiv API] as arxiv_api
+  [Habr, Medium, etc.] as sources
+}
+
+' --- Connections ---
+
+telegram --> api_gateway : HTTP
+api_gateway --> router
+
+router --> scraper : Process URL
+router --> digest : Get digest
+
+scraper --> cleaner
+cleaner --> orchestrator
+
+orchestrator --> gpt
+orchestrator --> deepseek
+orchestrator --> qwen
+orchestrator --> yalm
+orchestrator --> local_llm
+orchestrator --> cache : Cache check
+orchestrator --> queue : Async process
+
+queue --> orchestrator
+
+orchestrator --> parser
+parser --> quality
+quality --> cache : Store result
+quality --> db : Save history
+
+parser --> telegram : Send result
+
+exporter --> notion
+exporter --> docs
+exporter --> markdown
+exporter --> tg_channel
+parser --> exporter : On /export
+
+digest --> rss
+digest --> arxiv_api
+digest --> sources
+digest --> orchestrator : Process new article
+digest --> telegram : Send digest
+
+db <--> api_gateway : User settings
+cache <--> api_gateway : Session, cache
+cache <--> telegram : Rate limiting, state
+
+note right of telegram
+  Основной интерфейс для пользователя.
+  Поддерживает команды:
+  /start, /process, /settings, /export
+end note
+
+note right of orchestrator
+  Выбирает LLM на основе:
+  - языка статьи
+  - длины
+  - режима (personal/publish/custom)
+  - настроек пользователя
+end note
+
+note right of exporter
+  Модульная система экспорта.
+  Поддержка OAuth2 для Notion и Google Docs.
+end note
+
+note bottom of digest
+  Собирает статьи по расписанию.
+  Фильтрует по темам подписки.
+  Отправляет ежедневно.
+end note
+
+@enduml

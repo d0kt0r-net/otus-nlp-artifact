@@ -1,0 +1,73 @@
+@startuml
+actor Пользователь
+participant "Telegram Bot" as bot
+participant "API Gateway\n(FastAPI)" as api
+participant "Export Engine" as exporter
+participant "User DB\n(PostgreSQL)" as db
+participant "OAuth2 Service" as oauth
+participant "Notion API" as notion
+participant "Google Docs API" as gdocs
+participant "Cache (Redis)" as cache
+participant "Processed Article\nMetadata" as article
+
+title Экспорт: Сохранение результатов в Notion или Google Docs
+
+Пользователь -> bot: Отправляет /export_notion\nили /export_docs
+bot -> api: POST /export\n{user_id, service, article_id}
+api -> db: Получить настройки пользователя
+db --> api: export_token, workspace_id (если есть)
+
+alt Токен уже есть
+    api -> exporter: Запустить экспорт
+else Токен отсутствует
+    api -> oauth: Инициировать OAuth2\n(Notion или Google)
+    oauth --> Пользователь: Отправить ссылку на авторизацию
+    Пользователь -> oauth: Переходит, подтверждает доступ
+    oauth --> api: Возвращает access_token
+    api -> db: Сохранить токен и workspace
+    api -> exporter: Запустить экспорт
+end
+
+exporter -> article: Получить метаданные статьи
+article --> exporter: title, summary, tags, claims, outline
+
+exporter -> exporter: Форматировать в rich text\n(поддержка заголовков, списков)
+
+alt Экспорт в Notion
+    exporter -> notion: createPage(parent=workspace)\nс контентом
+    notion --> exporter: page_id, url
+else Экспорт в Google Docs
+    exporter -> gdocs: createDocument(title)\n+ batchUpdate(content)
+    gdocs --> exporter: document_id, url
+end
+
+exporter -> db: Сохранить ссылку на документ\nи время экспорта
+exporter --> api: Возвращает success + URL
+api --> bot: Форматирует ответ
+bot -> Пользователь: "Сохранено!\n🔗 [Ссылка на документ]"
+
+note right of oauth
+  OAuth2 flow:
+  - Notion: https://api.notion.com
+  - Google: https://www.googleapis.com/auth/documents
+  Токены хранятся шифрованно в БД.
+end note
+
+note right of exporter
+  Export Engine использует единый\nинтерфейс ExporterInterface.
+  Поддержка Markdown → rich text.
+end note
+
+note right of notion
+  Страница создаётся в указанном\nрабочем пространстве.
+  Теги → Notion properties (multi-select).
+end note
+
+note right of gdocs
+  Документ создаётся с форматированием:
+  - Заголовки
+  - Маркированные списки
+  - Цветные подсветки (опционально)
+end note
+
+@enduml
